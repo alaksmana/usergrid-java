@@ -43,6 +43,8 @@ public class UsergridResponse {
     private int statusCode = 0;
     @Nullable private JsonNode responseJson = null;
     @Nullable private String cursor;
+    @Nullable private Long count;
+    @Nullable private Map<String, List<String>> parameters;
     @Nullable private List<UsergridEntity> entities;
     @Nullable private Map<String, String> headers;
     @Nullable private UsergridQuery query;
@@ -54,6 +56,9 @@ public class UsergridResponse {
     public boolean ok() { return (statusCode > 0 && statusCode < 400); }
     public int count()  { return (entities == null) ? 0 : entities.size(); }
     public boolean hasNextPage() { return (cursor != null); }
+    public boolean hasPreviousPage() { 
+        return (null!=this.getPrevCursorParameter());
+    }
     @NotNull @Override public String toString() {
         return toJsonString(this);
     }
@@ -123,14 +128,28 @@ public class UsergridResponse {
 
     @Nullable
     public List<UsergridEntity> getEntities() { return entities; }
-    private void setEntities(@NotNull final List<UsergridEntity> entities) { this.entities = entities; }
+    public void setEntities(@NotNull final List<UsergridEntity> entities) { this.entities = entities; }
 
-    @Nullable @JsonProperty("cursor")
+    @Nullable @JsonProperty(UsergridQuery.CURSOR)
     public String getCursor() {
         return cursor;
     }
-    @JsonProperty("cursor")
+    @JsonProperty(UsergridQuery.CURSOR)
     private void setCursor(@NotNull final String cursor) { this.cursor = cursor; }
+
+    @Nullable @JsonProperty(UsergridQuery.PARAMS)
+    public Map<String, List<String>> getParameters() {
+        return parameters;
+    }
+    @JsonProperty(UsergridQuery.PARAMS)
+    private void setParameters(@NotNull final Map<String, List<String>> params) { this.parameters = params; }
+
+    @Nullable @JsonProperty(UsergridQuery.COUNT)
+    public Long getCount() {
+        return count;
+    }
+    @JsonProperty(UsergridQuery.COUNT)
+    private void setCount(@NotNull final Long count) { this.count = count; }
 
     @Nullable @JsonProperty("access_token")
     public String getAccessToken() { return this.accessToken; }
@@ -159,13 +178,152 @@ public class UsergridResponse {
         properties.put(key, value);
     }
 
+    private String getCurrentCursorParameter(){
+        if(null!=this.parameters){
+            //if inside parameters it is already previous cursor
+            try{
+                return this.parameters.get(UsergridQuery.CURSOR).get(0);
+            }
+            catch(Exception e){
+                return null;
+            }
+        }
+        else{return null;}
+    }
+
+    public int getLimitParameter(){
+        int limit = -1;
+        if(null!=this.parameters){
+            try{
+                String sLimit = this.parameters.get(UsergridQuery.LIMIT).get(0);
+                limit = Integer.parseInt(sLimit);
+            }
+            catch(Exception e){
+                return limit;
+            }
+        }
+        return limit;
+    }
+
+    public int getRealLimitParameter(){
+        int limit = -1;
+        if(null!=this.parameters){
+            try{
+                String sLimit = this.parameters.get(UsergridQuery.REALLIMIT).get(0);
+                limit = Integer.parseInt(sLimit);
+            }
+            catch(Exception e){
+                return limit;
+            }
+        }
+        return limit;
+    }
+
+    public int getOffsetParameter(){
+        int offset = -1;
+        if(null!=this.parameters){
+            try{
+                String sOffset = this.parameters.get(UsergridQuery.OFFSET).get(0);
+                offset = Integer.parseInt(sOffset);
+            }
+            catch(Exception e){
+                return offset;
+            }
+        }
+        return offset;
+    }
+
+    public String getPrevCursorParameter(){
+        String sPrevCursor = null;
+        if(null!=this.parameters){
+            try{
+                sPrevCursor = this.parameters.get(UsergridQuery.PREVCURSOR).get(0);                
+            }
+            catch(Exception e){
+                return null;
+            }
+        }
+        return sPrevCursor;
+    }
+
+    @NotNull
+    public UsergridResponse loadPreviousPage() {
+        UsergridClient client = this.client;
+        UsergridEntity entity = this.first();
+        if( this.hasPreviousPage() && client != null && entity != null ) {
+            Map<String, Object> paramsMap = new HashMap<>();
+            
+            //ADD ALL PREV PARAMS
+            if(null!=this.parameters){
+                for(String key : this.parameters.keySet()){
+                    List<String> value = this.parameters.get(key);
+                    paramsMap.put(key, value.get(0));
+                }
+            }
+            //SET PREV CURSOR AS CURRENT CURSOR
+            if(null!=this.getPrevCursorParameter()){
+                paramsMap.put(UsergridQuery.CURSOR, this.getPrevCursorParameter());
+            }
+            else{
+                return UsergridResponse.fromError(client,"Error Loading Previous Page.","Unable to load previous page.");
+            }
+            
+            //SET CURRENT CURSOR AS PREV CURSOR
+            String sCurrentCursor = this.getCurrentCursorParameter();
+            if(null!=sCurrentCursor){   
+                paramsMap.put(UsergridQuery.PREVCURSOR, sCurrentCursor);
+            }
+            else{
+                return UsergridResponse.fromError(client,"Error Loading Previous Page.","Unable to load previous page.");
+            }
+
+            //CHECK LIMIT OFFSET MODE?
+            // if(this.getRealLimitParameter()!=-1){//LIMIT OFFSET
+            //     //switch back to REAL LIMIT
+            //     paramsMap.put(UsergridQuery.LIMIT, this.getRealLimitParameter());
+            // }
+            
+            UsergridRequest request = new UsergridRequest(UsergridEnums.UsergridHttpMethod.GET, UsergridRequest.APPLICATION_JSON_MEDIA_TYPE, client.clientAppUrl(), paramsMap, null, null, this.getQuery(), client.authForRequests() , entity.getType());
+            return client.sendRequest(request);
+        } else {
+            return UsergridResponse.fromError(client,"Error Loading Previous Page.","Unable to load previous page.");
+        }
+    }
+
     @NotNull
     public UsergridResponse loadNextPage() {
         UsergridClient client = this.client;
         UsergridEntity entity = this.first();
         if( this.hasNextPage() && client != null && entity != null ) {
+
             Map<String, Object> paramsMap = new HashMap<>();
-            paramsMap.put("cursor", getCursor());
+            
+            //ADD ALL PREV PARAMS
+            if(null!=this.parameters){
+                for(String key : this.parameters.keySet()){
+                    List<String> value = this.parameters.get(key);
+                    paramsMap.put(key, value.get(0));
+                }
+            }
+            //ADD CURRENT CURSOR AS PREVIOUS CURSOR
+            String sCurrentCursor = this.getCurrentCursorParameter();
+            if(null!=sCurrentCursor){   
+                paramsMap.put(UsergridQuery.PREVCURSOR, sCurrentCursor);
+            }
+            else{//never use any cursor yet
+                //do nothing
+            }
+            //SET NEXT CURSOR AS CURRENT CURSOR
+            if(null!=this.getCursor()){
+                paramsMap.put(UsergridQuery.CURSOR, getCursor());
+            }
+
+            //CHECK LIMIT OFFSET MODE?
+            // if(this.getRealLimitParameter()!=-1){//LIMIT OFFSET
+            //     //switch back to REAL LIMIT
+            //     paramsMap.put(UsergridQuery.LIMIT, this.getRealLimitParameter());
+            // }
+
             UsergridRequest request = new UsergridRequest(UsergridEnums.UsergridHttpMethod.GET, UsergridRequest.APPLICATION_JSON_MEDIA_TYPE, client.clientAppUrl(), paramsMap, null, null, this.getQuery(), client.authForRequests() , entity.getType());
             return client.sendRequest(request);
         } else {

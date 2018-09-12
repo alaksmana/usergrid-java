@@ -31,17 +31,33 @@ public final class UsergridQuery {
     @NotNull private final ArrayList<String> urlTerms = new ArrayList<>();
     @NotNull private final HashMap<String, UsergridQuerySortOrder> orderClauses = new HashMap<>();
     @NotNull private Integer limit = UsergridQuery.LIMIT_DEFAULT;
+    @NotNull private Integer reallimit = UsergridQuery.LIMIT_DEFAULT;
+    @NotNull private Integer offset = 0;
     @Nullable private String cursor = null;
+    @Nullable private String prevcursor = null;
     @Nullable private String fromStringValue = null;
     @Nullable private String collectionName = null;
 
     public UsergridQuery() {
-        this(null);
+        this(null); //reflection
     }
 
     public UsergridQuery(@Nullable final String collectionName) {
         this.collectionName = collectionName;
         this.requirementStrings.add(UsergridQuery.EMPTY_STRING);
+    }
+
+    public UsergridQuery(@NotNull final UsergridQuery originalquery, boolean mode) {
+        this.collectionName = originalquery.getCollectionName();
+        this.requirementStrings.addAll(originalquery.getRequirementStrings());
+        this.urlTerms.addAll(originalquery.getUrlTerms());
+        this.orderClauses.putAll(originalquery.getOrderClauses());
+        this.limit = originalquery.getLimit();
+        this.reallimit = originalquery.getRealLimit();
+        this.offset = originalquery.getOffset();
+        this.cursor = originalquery.getCursor();
+        this.prevcursor = originalquery.getPrevCursor();
+        this.fromStringValue = originalquery.getFromStringValue();     
     }
 
     private static boolean isUUID(@NotNull final String string) {
@@ -97,6 +113,57 @@ public final class UsergridQuery {
         return this.collectionName;
     }
 
+    @Nullable
+    public String getCursor() {
+        return this.cursor;
+    }
+
+    @Nullable
+    public String getPrevCursor() {
+        return this.prevcursor;
+    }
+
+    @Nullable
+    public String getFromStringValue() {
+        return this.fromStringValue;
+    }
+
+    public Integer getLimit() {
+        return this.limit;
+    }
+
+    public void setLimit(Integer limit){
+        this.limit = limit;
+    }
+
+    public Integer getRealLimit() {
+        return this.reallimit;
+    }
+
+    public void setRealLimit(Integer reallimit){
+        this.reallimit = reallimit;
+    }
+
+    public Integer getOffset() {
+        return this.offset;
+    }
+
+    public void setOffset(Integer offset){
+        this.offset = offset;
+    }
+
+    public ArrayList<String> getRequirementStrings(){
+        return this.requirementStrings;
+    }
+
+    public ArrayList<String> getUrlTerms(){
+        return this.urlTerms;
+    }
+
+    public HashMap<String, UsergridQuerySortOrder> getOrderClauses(){
+        return this.orderClauses;
+    }
+
     @NotNull
     public UsergridQuery type(@Nullable final String type) {
         this.collectionName = type;
@@ -114,14 +181,32 @@ public final class UsergridQuery {
     }
 
     @NotNull
-    public UsergridQuery cursor(@Nullable final String value) {
-        this.cursor = value;
+    public UsergridQuery cursor(@Nullable final String cursor) {
+        this.cursor = cursor;
+        return this;
+    }
+
+    @NotNull
+    public UsergridQuery prevcursor(@Nullable final String prevcursor) {
+        this.prevcursor = prevcursor;
+        return this;
+    }
+
+    @NotNull
+    public UsergridQuery offset(@NotNull final Integer offset) {
+        this.offset = offset;
         return this;
     }
 
     @NotNull
     public UsergridQuery limit(@NotNull final Integer limit) {
         this.limit = limit;
+        return this;
+    }
+
+    @NotNull
+    public UsergridQuery reallimit(@NotNull final Integer reallimit) {
+        this.reallimit = reallimit;
         return this;
     }
 
@@ -374,6 +459,24 @@ public final class UsergridQuery {
             }
             urlAppend += CURSOR + EQUALS + this.cursor;
         }
+        if (this.prevcursor != null && !this.prevcursor.isEmpty()) {
+            if (!urlAppend.isEmpty()) {
+                urlAppend += AMPERSAND;
+            }
+            urlAppend += PREVCURSOR + EQUALS + this.prevcursor;
+        }
+        if (this.reallimit != LIMIT_DEFAULT) {
+            if (!urlAppend.isEmpty()) {
+                urlAppend += AMPERSAND;
+            }
+            urlAppend += REALLIMIT + EQUALS + this.reallimit.toString();
+        }
+        if (this.offset != 0) {
+            if (!urlAppend.isEmpty()) {
+                urlAppend += AMPERSAND;
+            }
+            urlAppend += OFFSET + EQUALS + this.offset.toString();
+        }
 
         String requirementsString = this.constructRequirementString();
 
@@ -407,25 +510,33 @@ public final class UsergridQuery {
     }
 
     private static final int LIMIT_DEFAULT = 10;
-    @NotNull private static final String AMPERSAND = "&";
-    @NotNull private static final String AND = "and";
-    @NotNull private static final String APOSTROPHE = "'";
-    @NotNull private static final String COMMA = ",";
-    @NotNull private static final String CONTAINS = "contains";
-    @NotNull private static final String CURSOR = "cursor";
-    @NotNull private static final String EMPTY_STRING = "";
-    @NotNull private static final String EQUALS = "=";
-    @NotNull private static final String LIMIT = "limit";
-    @NotNull private static final String LOCATION = "location";
-    @NotNull private static final String NOT = "not";
-    @NotNull private static final String OF = "of";
-    @NotNull private static final String OR = "or";
-    @NotNull private static final String ORDER_BY = "order by";
-    @NotNull private static final String QL = "ql";
-    @NotNull private static final String QUESTION_MARK = "?";
-    @NotNull private static final String SELECT_ALL = "select *";
-    @NotNull private static final String SPACE = " ";
-    @NotNull private static final String UTF8 = "UTF-8";
-    @NotNull private static final String WHERE = "where";
-    @NotNull private static final String WITHIN = "within";
+    public static final int LIMIT_MAX = 1000;
+    @NotNull public static final String AMPERSAND = "&";
+    @NotNull public static final String AND = "and";
+    @NotNull public static final String APOSTROPHE = "'";
+    @NotNull public static final String COMMA = ",";
+    @NotNull public static final String CONTAINS = "contains";
+    @NotNull public static final String CURSOR = "cursor";
+    @NotNull public static final String OFFSET = "offset";
+    @NotNull public static final String PREVCURSOR = "prevcursor";
+    @NotNull public static final String PARAMS = "params";
+    @NotNull public static final String COUNT = "count";
+    @NotNull public static final String COUNTERS = "counters";
+    @NotNull public static final String COUNTERHEADER = "application.collection.";
+    @NotNull public static final String EMPTY_STRING = "";
+    @NotNull public static final String EQUALS = "=";
+    @NotNull public static final String LIMIT = "limit";
+    @NotNull public static final String REALLIMIT = "reallimit";
+    @NotNull public static final String LOCATION = "location";
+    @NotNull public static final String NOT = "not";
+    @NotNull public static final String OF = "of";
+    @NotNull public static final String OR = "or";
+    @NotNull public static final String ORDER_BY = "order by";
+    @NotNull public static final String QL = "ql";
+    @NotNull public static final String QUESTION_MARK = "?";
+    @NotNull public static final String SELECT_ALL = "select *";
+    @NotNull public static final String SPACE = " ";
+    @NotNull public static final String UTF8 = "UTF-8";
+    @NotNull public static final String WHERE = "where";
+    @NotNull public static final String WITHIN = "within";
 }

@@ -26,9 +26,12 @@ import org.apache.usergrid.java.client.response.UsergridResponse;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import com.fasterxml.jackson.databind.JsonNode;
 
 @SuppressWarnings("unused")
 public class UsergridClient {
@@ -216,6 +219,70 @@ public class UsergridClient {
     }
 
     @NotNull
+    public long GETcounterbyid(@NotNull final String counterid) {
+        String[] pathSegments = {UsergridQuery.COUNTERS};
+        UsergridRequest request = new UsergridRequest(UsergridHttpMethod.GET, UsergridRequest.APPLICATION_JSON_MEDIA_TYPE, this.clientAppUrl(), this.authForRequests(), pathSegments);
+        
+        Map<String, Object> parameters = new HashMap<String, Object>();
+		parameters.put("counter", counterid);
+        request.setParameters(parameters);
+        
+        UsergridResponse ugResponse = this.sendRequest(request);
+
+        long counter = -1;
+        if(ugResponse.ok()){
+            try{
+                JsonNode ugJsonResponse = ugResponse.getResponseJson();
+                JsonNode ugCounterArray = ugJsonResponse.get(UsergridQuery.COUNTERS);
+                JsonNode ugCounter = ugCounterArray.get(0);
+                JsonNode ugCounterValuesArray = ugCounter.get("values");
+                JsonNode ugCounterValueObj = ugCounterValuesArray.get(0);
+                JsonNode ugCounterValue = ugCounterValueObj.get("value");
+                return ugCounterValue.asLong(counter);
+            }
+            catch(Exception e){
+                return counter;
+            }
+        }
+        else{
+            return counter;
+        }
+    }
+
+    @NotNull
+    public List<String> GETcounters() {
+        String[] pathSegments = {UsergridQuery.COUNTERS};
+        UsergridRequest request = new UsergridRequest(UsergridHttpMethod.GET, UsergridRequest.APPLICATION_JSON_MEDIA_TYPE, this.clientAppUrl(), this.authForRequests(), pathSegments);                
+        UsergridResponse ugResponse = this.sendRequest(request);
+
+        List<String> counterids = new ArrayList<String>();
+        
+        if(ugResponse.ok()){
+            try{
+                JsonNode ugJsonResponse = ugResponse.getResponseJson();
+                JsonNode ugCounterIdList = ugJsonResponse.get("data");
+                
+                for(JsonNode ugCounterId : ugCounterIdList){
+                    counterids.add(ugCounterId.asText());
+                }
+            }
+            catch(Exception e){
+                return counterids;
+            }
+            return counterids;
+        }
+        else{
+            return counterids;
+        }
+    }
+
+    @NotNull
+    public UsergridResponse GETbylimitoffset(@NotNull final String type, @NotNull final Integer limit, @NotNull final Integer offset) {
+        UsergridQuery query = new UsergridQuery().type(type).limit(limit).offset(offset);
+        return this.GET(query);
+    }
+
+    @NotNull
     public UsergridResponse GET(@NotNull final String type, @NotNull final String uuidOrName) {
         String[] pathSegments = {type, uuidOrName};
         UsergridRequest request = new UsergridRequest(UsergridHttpMethod.GET, UsergridRequest.APPLICATION_JSON_MEDIA_TYPE, this.clientAppUrl(), this.authForRequests() , pathSegments);
@@ -235,8 +302,129 @@ public class UsergridClient {
         if( collectionName == null ) {
             return UsergridResponse.fromError(this,  "Query collection name missing.", "Query collection name is missing.");
         }
-        UsergridRequest request = new UsergridRequest(UsergridHttpMethod.GET, UsergridRequest.APPLICATION_JSON_MEDIA_TYPE, this.clientAppUrl(), query, this.authForRequests() , collectionName);
-        return this.sendRequest(request);
+
+        String type = query.getType();
+        int limit = query.getLimit();
+        int offset = query.getOffset();
+        
+        if(offset==0){//non limit offset query
+            UsergridRequest nonlimitoffsetrequest = new UsergridRequest(UsergridHttpMethod.GET, UsergridRequest.APPLICATION_JSON_MEDIA_TYPE, this.clientAppUrl(), query, this.authForRequests() , collectionName);
+            return this.sendRequest(nonlimitoffsetrequest);
+        }
+        else{//process limit offset using query 
+            if(offset<0){return UsergridResponse.fromError(this, "Error Offset.","Offset is negative.");}
+            if(limit<=0){return UsergridResponse.fromError(this, "Error Limit.","Limit is negative or zero.");}
+            if(limit>UsergridQuery.LIMIT_MAX){return UsergridResponse.fromError(this, "Error Limit.","Limit is above max=" + UsergridQuery.LIMIT_MAX);}
+            
+            //GET COUNT OF ENTIRE DATA DULU
+            long datacount = this.GETcounterbyid(UsergridQuery.COUNTERHEADER + type);
+            if(datacount<0){
+                return UsergridResponse.fromError(this, "Error Getting Data Count.","Unable to get Data Count.");
+            }
+
+            //ANALYZE AVAILABLE OFFSET
+            int availableoffset = -1;
+            int remainderentity = -1;
+            if(datacount==0){
+                availableoffset = 0;
+                remainderentity = 0;
+            }
+            else if(datacount<=limit){
+                availableoffset = 0;
+                remainderentity = (int)(datacount%((long)limit));
+            }
+            else{
+                availableoffset = (int)(datacount/(long)limit);
+                remainderentity = (int)(datacount%((long)limit));
+            }
+            
+            //ANALYZE OFFSET AGAINST DATA COUNT AND MANIPULATE LIMIT
+            int fakelimit = -1;
+            if((offset+1)>availableoffset){//requested page index is beyond available data, get last data
+                if(remainderentity==0){
+                    fakelimit = availableoffset * limit;
+                }
+                else{
+                    fakelimit = (availableoffset * limit)+remainderentity;
+                }
+            }
+            else{//requested page index is within available data
+                fakelimit = (offset+1) * limit;
+            }
+
+            //limit cannot be zero by now
+            //offset cannot be zero/negative by now   
+            if(limit>fakelimit){ //case 0 offset
+                fakelimit = limit;
+            }     
+            // else if(reallimit<fakelimit){ //majority cases
+            //     //analyze datacount and remove unused
+            // }
+            // else{//case 1 offset
+            //     //do nothing
+            // }
+
+            //WHAT IF FAKELIMIT GOES BEYOND MAX? loop based on MAX
+            UsergridQuery copyquery = new UsergridQuery(query, false);
+            copyquery.setRealLimit(limit);
+            copyquery.setOffset(offset);
+
+            UsergridResponse response;
+            
+            if(fakelimit>UsergridQuery.LIMIT_MAX){
+                int loopfake = fakelimit/UsergridQuery.LIMIT_MAX;
+                int loopremainder = fakelimit%UsergridQuery.LIMIT_MAX;
+
+                copyquery.setLimit(UsergridQuery.LIMIT_MAX);
+                UsergridRequest request = new UsergridRequest(UsergridHttpMethod.GET, UsergridRequest.APPLICATION_JSON_MEDIA_TYPE, this.clientAppUrl(), copyquery, this.authForRequests() , collectionName);
+
+                response = this.sendRequest(request);
+                for(int i=1; i<loopfake; i++){
+                    UsergridResponse tempresponse = response.loadNextPage();
+                    response = tempresponse;
+                }    
+                if(loopremainder>0){//go to the last page
+                    UsergridResponse tempresponse = response.loadNextPage();
+                    response = tempresponse;
+                }
+            }
+            else{
+                copyquery.setLimit(fakelimit);
+                UsergridRequest request = new UsergridRequest(UsergridHttpMethod.GET, UsergridRequest.APPLICATION_JSON_MEDIA_TYPE, this.clientAppUrl(), copyquery, this.authForRequests() , collectionName);
+                response = this.sendRequest(request);
+            }
+            
+            //REMOVE UNUSED DATA OUT OF PAGE
+            //compare limit and fake limit
+            if(fakelimit<=limit){ //original query
+                //dont remove anything from response
+            }
+            else{//remove, fakelimit > limit
+                List<UsergridEntity> data = response.getEntities();
+                List<UsergridEntity> filtereddata = new ArrayList<UsergridEntity>();
+                //check if requested offset is beyond last page, use last page (remainder if not 0)
+                if((offset+1)>availableoffset){
+                    if(remainderentity>0){
+                        for(int i=(data.size()-remainderentity); i<data.size(); i++){
+                            filtereddata.add(data.get(i));
+                        }
+                    }
+                    else{//use limit
+                        for(int i=(data.size()-limit); i<data.size(); i++){
+                            filtereddata.add(data.get(i));
+                        }
+                    }
+                }
+                else{//within available offset use offset
+                    for(int i=(data.size()-limit); i<data.size(); i++){
+                        filtereddata.add(data.get(i));
+                    }
+                }
+                response.setEntities(filtereddata);
+            }
+            return response;
+        }
+        
     }
 
     @NotNull

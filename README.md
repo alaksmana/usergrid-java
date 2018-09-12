@@ -57,6 +57,38 @@ UsergridResponse response = Usergrid.GET(query);
 List<UsergridEntity> entities = response.getEntities();
 ```
 
+- To get list of counter IDs:
+
+```java
+List<String> counteridslist = Usergrid.GETcounters();
+
+Example:
+    
+    "data": [
+        "application.collection.roles",
+        "application.collection.tblmformmanagements",
+        "application.collection.tblmforms",
+        "application.collection.tblmmodules",
+        "application.collection.tblmscreens",
+        "application.collection.users",
+        "application.collection.xmenus",
+        "application.entities",
+        "application.requests.delete",
+        "application.requests.get",
+        "application.requests.post",
+        "application.requests.put"
+    ]
+
+```
+
+- To get value of a specific counter by ID:
+
+```java
+long countervalue = Usergrid.GETcounterbyid("application.collection.tblmscreens");
+
+Example: 12345
+```
+
 ### POST and PUT
 
 POST and PUT requests both require a JSON body payload. You can pass either a Java object or a `UsergridEntity` instance. While the former works in principle, best practise is to use a `UsergridEntity` wherever practical. When an entity has a uuid or name property and already exists on the server, use a PUT request to update it. If it does not, use POST to create it.
@@ -505,6 +537,100 @@ UsergridResponse response = Usergrid.GET("users","<uuid-or-name>");
     //     response.entity() (same as response.user)   
     //     response.first() (same as response.user)  
     //     response.last() (same as response.user)  
+```
+
+## Pagination Limit Offset
+
+Using the UsergridQuery, you can obtain entities in Limit Offset pagination. This feature is based on implementation of the Cassandra Cursor feature. 
+
+```
+UsergridQuery query = new UsergridQuery("cats").limit(11).offset(4);
+
+UsergridResponse response = Usergrid.GET(query);
+    // you can access;
+    //     response.users() (containing only the one user)
+    //     response.getEntities() (same as response.users)
+    //     response.user() (the returned user)    
+    //     response.entity() (same as response.user)   
+    //     response.first() (same as response.user)  
+    //     response.last() (same as response.user)
+```
+
+Or you can use the GETbylimitoffset.
+
+```
+int limit = 11; //11 rows per page
+int offset = 4; //page 5 or index offset 4
+
+UsergridResponse response = GETbylimitoffset("cats", limit, offset);
+    // you can access;
+    //     response.users() (containing only the one user)
+    //     response.getEntities() (same as response.users)
+    //     response.user() (the returned user)    
+    //     response.entity() (same as response.user)   
+    //     response.first() (same as response.user)  
+    //     response.last() (same as response.user)
+```
+
+## Pagination Cursor
+
+Using the UsergridResponse, you can obtain entities from UsergridQuery or GET method in a Cursor based pagination.
+
+```
+//setup your query
+UsergridQuery query = new UsergridQuery("cats");
+//set limit max 1000, anything beyond 1000 cassandra will set to 1000.
+query.limit(100);
+
+UsergridResponse response = Usergrid.GET(query); 
+
+UsergridResponse responseNextPage = response.loadNextPage();
+    // you can access;
+    //     response.users() (containing only the one user)
+    //     response.getEntities() (same as response.users)
+    //     response.user() (the returned user)    
+    //     response.entity() (same as response.user)   
+    //     response.first() (same as response.user)  
+    //     response.last() (same as response.user)
+
+```
+
+You can also load previous page ONLY after traversing through at least 2 pages.
+
+```
+UsergridResponse responsePreviousPage = response.loadPreviousPage();
+    // you can access;
+    //     response.users() (containing only the one user)
+    //     response.getEntities() (same as response.users)
+    //     response.user() (the returned user)    
+    //     response.entity() (same as response.user)   
+    //     response.first() (same as response.user)  
+    //     response.last() (same as response.user)
+```
+
+Or you can load previous page at index of cursor ONLY after traversing through at least 2 pages.
+
+```
+UsergridResponse responsePageAt = response.loadPageAt(int prevcursorindex);
+    // you can access;
+    //     response.users() (containing only the one user)
+    //     response.getEntities() (same as response.users)
+    //     response.user() (the returned user)    
+    //     response.entity() (same as response.user)   
+    //     response.first() (same as response.user)  
+    //     response.last() (same as response.user)
+```
+
+To get how many number of pages/cursors available:
+
+```
+int response.getCursorCount();
+```
+
+To get the current page/cursor index (starting with page 0):
+
+```
+int response.getCurrentCursorIndex();
 ```
 
 ## Connections
